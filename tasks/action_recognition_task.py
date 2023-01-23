@@ -54,7 +54,7 @@ class ActionRecognition(tasks.Task, ABC):
         self.accuracy.update(fused_logits, label)
 
     def wandb_log(self):
-        logs = {'loss verb': self.loss.val, 'top1-accuracy': self.accuracy.avg[1],
+        logs = {'loss verb': self.loss.val, 'top1-accuracy-training': self.accuracy.avg[1],
                 'top5-accuracy': self.accuracy.avg[5]}
         for m in self.modalities:
             logs[f'lr_{m}'] = self.optimizer[m].param_groups[-1]['lr']

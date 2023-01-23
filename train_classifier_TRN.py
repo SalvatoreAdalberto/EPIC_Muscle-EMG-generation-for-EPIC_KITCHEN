@@ -12,7 +12,9 @@ import numpy as np
 import os
 import models as model_list
 import tasks
+import matplotlib.pyplot as plt
 import wandb
+from copy import deepcopy
 
 # global variables among training functions
 training_iterations = 0
@@ -34,8 +36,10 @@ def init_operations():
 
     # wanbd logging configuration
     if args.wandb_name is not None:
-        wandb.init(group=args.wandb_name, dir=args.wandb_dir)
-        wandb.run.name = args.name + "_" + args.shift.split("-")[0] + "_" + args.shift.split("-")[-1]
+        wandb.login(key='c87fa53083814af2a9d0ed46e5a562b9a5f8b3ec')
+        wandb.init(project="test-project", entity="egovision-aml22")
+        #wandb.run.name = args.name + "_" + args.shift.split("-")[0] + "_" + args.shift.split("-")[-1]
+        wandb.run.name = f'{args.name}_{args.models.RGB.model}'
 
 
 def main():
@@ -48,7 +52,7 @@ def main():
     num_classes, valid_labels, source_domain, target_domain = utils.utils.get_domains_and_labels(args)
     # device where everything is run
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    
     # these dictionaries are for more multi-modal training/testing, each key is a modality used
     models = {}
     logger.info("Instantiating models per modality")
@@ -56,14 +60,14 @@ def main():
         logger.info('{} Net\tModality: {}'.format(args.models[m].model, m))
         # notice that here, the first parameter passed is the input dimension
         # In our case it represents the feature dimensionality which is equivalent to 1024 for I3D
-        models[m] = getattr(model_list, args.models[m].model)()
+        models[m] = getattr(model_list, args.models[m].model)(1024, args.num_clips, num_classes)
 
     # the models are wrapped into the ActionRecognition task which manages all the training steps
     action_classifier = tasks.ActionRecognition("action-classifier", models, args.batch_size,
                                                 args.total_batch, args.models_dir, num_classes,
                                                 args.train.num_clips, args.models, args=args)
     action_classifier.load_on_gpu(device)
-
+    
     if args.action == "train":
         # resume_from argument is adopted in case of restoring from a checkpoint
         if args.resume_from is not None:
@@ -108,6 +112,10 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
     num_classes: int, number of classes in the classification problem
     """
     global training_iterations, modalities
+    losses = []
+    accurracies = []
+    wandb.watch(action_classifier.task_models['RGB'])
+
 
     data_loader_source = iter(train_loader)
     action_classifier.train(True)
@@ -117,6 +125,7 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
     # the batch size should be total_batch but batch accumulation is done with batch size = batch_size.
     # real_iter is the number of iterations if the batch size was really total_batch
     for i in range(iteration, training_iterations):
+
         # iteration w.r.t. the paper (w.r.t the bs to simulate).... i is the iteration with the actual bs( < tot_bs)
         real_iter = (i + 1) / (args.total_batch // args.batch_size)
         if real_iter == args.train.lr_steps:
@@ -145,17 +154,21 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
         ''' Action recognition'''
         source_label = source_label.to(device)
         data = {}
+        logits = []
 
-        for clip in range(args.train.num_clips):
+        # for clip in range(args.train.num_clips):
             # in case of multi-clip training one clip per time is processed
-            for m in modalities:
-                data[m] = source_data[m][:, clip].to(device)
+        for m in modalities:
+            data[m] = source_data[m].to(device)
+            #data[m] = torch.reshape(data[m], (5,32,1024)) #to be uncommented for late fusion
+           
+        logits, _ = action_classifier.forward(data)
+        
+        action_classifier.compute_loss(logits, source_label, loss_weight=1)
+        action_classifier.backward(retain_graph=False)
+        action_classifier.compute_accuracy(logits, source_label)
 
-            logits, _ = action_classifier.forward(data)
-            action_classifier.compute_loss(logits, source_label, loss_weight=1)
-            action_classifier.backward(retain_graph=False)
-            action_classifier.compute_accuracy(logits, source_label)
-
+        action_classifier.wandb_log()
         # update weights and zero gradients if total_batch samples are passed
         if gradient_accumulation_step:
             logger.info("[%d/%d]\tlast Verb loss: %.4f\tMean verb loss: %.4f\tAcc@1: %.2f%%\tAccMean@1: %.2f%%" %
@@ -170,6 +183,8 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
         # save the last 9 models
         if gradient_accumulation_step and real_iter % args.train.eval_freq == 0:
             val_metrics = validate(action_classifier, val_loader, device, int(real_iter), num_classes)
+            #accurracies.append(val_metrics['top1'].detach())
+            wandb.log({'top1-accuracy-validation': val_metrics['top1'], 'top5-accuracy-validation': val_metrics['top5'], 'class_accuracies_val': val_metrics['class_accuracies']})
 
             if val_metrics['top1'] <= action_classifier.best_iter_score:
                 logger.info("New best accuracy {:.2f}%"
@@ -181,7 +196,8 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
 
             action_classifier.save_model(real_iter, val_metrics['top1'], prefix=None)
             action_classifier.train(True)
-
+    
+    #loss_and_accuracy_plot(losses=losses, accuracies=accurracies)
 
 def validate(model, val_loader, device, it, num_classes):
     """
@@ -206,18 +222,11 @@ def validate(model, val_loader, device, it, num_classes):
             for m in modalities:
                 batch = data[m].shape[0]
                 logits[m] = torch.zeros((args.test.num_clips, batch, num_classes)).to(device)
-
-            clip = {}
-            for i_c in range(args.test.num_clips):
-                for m in modalities:
-                    clip[m] = data[m][:, i_c].to(device)
-
-                output, _ = model(clip)
-                for m in modalities:
-                    logits[m][i_c] = output[m]
-
+                data[m].to(device)
+            
+            output, _ = model(data)
             for m in modalities:
-                logits[m] = torch.mean(logits[m], dim=0)
+                logits[m] = output[m]
 
             model.compute_accuracy(logits, label)
 
@@ -244,6 +253,20 @@ def validate(model, val_loader, device, it, num_classes):
         f.write("[%d/%d]\tAcc@top1: %.2f%%\n" % (it, args.train.num_iter, test_results['top1']))
 
     return test_results
+
+def loss_and_accuracy_plot(losses, accuracies):
+    losses = np.array(losses)
+    accuracies = np.array(accuracies)
+
+    plt.figure()
+    plt.plot(losses)
+    plt.savefig('./Experiment_logs/loss.png')
+
+    plt.figure()
+    plt.plot(accuracies)
+    plt.savefig('./Experiment_logs/accuracy.png')
+
+    
 
 
 if __name__ == '__main__':
