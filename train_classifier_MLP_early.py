@@ -152,10 +152,12 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
 
         # for clip in range(args.train.num_clips):
             # in case of multi-clip training one clip per time is processed
+        
         for m in modalities:
             data[m] = source_data[m].to(device)
             data[m] = torch.reshape(data[m], (32,5120,1)) #to be uncommented for late fusion
-           
+
+        print(data['RGB'].size()) 
         logits, _ = action_classifier.forward(data)
         
         action_classifier.compute_loss(logits, source_label, loss_weight=1)

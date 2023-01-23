@@ -47,6 +47,7 @@ class MLP_early_fusion(nn.Module):
         )
 
     def forward(self, x):
+        print(x.size())
         return self.classifier(x), {}
 
     
