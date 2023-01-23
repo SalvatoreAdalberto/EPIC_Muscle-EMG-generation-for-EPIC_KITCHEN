@@ -215,6 +215,7 @@ def validate(model, val_loader, device, it, num_classes):
 
             for m in modalities:
                 batch = data[m].shape[0]
+                data[m] = torch.reshape(data[m], (batch, 5120))
                 logits[m] = torch.zeros((batch, num_classes)).to(device)
                 data[m].to(device)
 
