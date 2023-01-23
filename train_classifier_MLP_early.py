@@ -155,7 +155,7 @@ def train(action_classifier, train_loader, val_loader, device, num_classes):
         
         for m in modalities:
             data[m] = source_data[m].to(device)
-            data[m] = torch.reshape(data[m], (32,5120,1)) #to be uncommented for late fusion
+            data[m] = torch.reshape(data[m], (32,5120)) #to be uncommented for late fusion
 
         print(data['RGB'].size()) 
         logits, _ = action_classifier.forward(data)
