@@ -38,11 +38,11 @@ class MLP_early_fusion(nn.Module):
         #num_input = 5*1024 
         self.num_input = num_input
         self.classifier = nn.Sequential(
-            nn.Linear(self.num_input, 2560),
+            nn.Linear(self.num_input, 1280),
             nn.ReLU(),
-            nn.Linear(2560,1024),
+            nn.Linear(1280,640),
             nn.ReLU(),
-            nn.Linear(1024, num_classes),
+            nn.Linear(640, num_classes),
             nn.Dropout(p=0.6)
         )
 
