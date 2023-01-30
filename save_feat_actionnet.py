@@ -59,7 +59,7 @@ def main():
     if args.action == "save":
         augmentations = {"train": train_augmentations, "test": test_augmentations}
         # the only action possible with this script is "save"
-        loader = torch.utils.data.DataLoader(EpicKitchensDataset(args.dataset.shift.split("-")[1], modalities,
+        loader = torch.utils.data.DataLoader(ActionNetDataset(args.dataset.shift.split("-")[1], modalities,
                                                                  args.split, args.dataset,
                                                                  args.save.num_frames_per_clip,
                                                                  args.save.num_clips, args.save.dense_sampling,
@@ -130,20 +130,9 @@ def save_feat(model, loader, device, it, num_classes):
                                                                           model.accuracy.avg[1], model.accuracy.avg[5]))
 
         os.makedirs("saved_features", exist_ok=True)
-        pickle.dump(results_dict, open(os.path.join("saved_features", args.name + "_" +
+        pickle.dump(results_dict, open(os.path.join("saved_features/ACTIONNET", args.name + "_" +
                                                     args.dataset.shift.split("-")[1] + "_" +
                                                     args.split + ".pkl"), 'wb'))
-
-        class_accuracies = {i_class: (x / y) * 100 for i_class, x, y in zip(range(len(model.accuracy.total)), model.accuracy.correct, model.accuracy.total) if y != 0}
-        logger.info('Final accuracy: top1 = %.2f%%\ttop5 = %.2f%%' % (model.accuracy.avg[1],
-                                                                      model.accuracy.avg[5]))
-        #print(class_accuracies.items())
-        for i_class, class_acc in zip(class_accuracies.keys(), class_accuracies.values()):
-            logger.info('Class %d = [%d/%d] = %.2f%%' % (i_class,
-                                                         int(model.accuracy.correct[i_class]),
-                                                         int(model.accuracy.total[i_class]),
-                                                         class_acc))
-
     #logger.info('Accuracy by averaging class accuracies (same weight for each class): {}%'
     #            .format(np.array(class_accuracies.values()).mean()))
     #test_results = {'top1': model.accuracy.avg[1], 'top5': model.accuracy.avg[5],
