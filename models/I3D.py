@@ -384,7 +384,7 @@ class I3D(models.VideoModel):
     @staticmethod
     def load(path):
         logger.info("Loading Kinetics weights I3D")
-        path = "./saved_models/I3D_SourceOnlyD1"
+        path = './pretrained_i3d/rgb_imagenet.pt'
         state_dict = torch.load(path)
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
